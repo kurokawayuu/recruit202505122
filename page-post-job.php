@@ -428,10 +428,58 @@ if (isset($_POST['post_job']) && isset($_POST['job_nonce']) &&
             </div>
             
             <div class="form-row">
-                <label for="facility_address">施設住所 <span class="required">*</span></label>
-                <input type="text" id="facility_address" name="facility_address" required>
-                <span class="form-hint">例: 〒123-4567 神奈川県横浜市○○区△△町1-2-3</span>
-            </div>
+    <label for="facility_address">施設住所 <span class="required">*</span></label>
+    
+    <div class="address-container">
+        <div class="address-row">
+            <label for="facility_zipcode">郵便番号</label>
+            <input type="text" id="facility_zipcode" name="facility_zipcode" placeholder="123-4567">
+        </div>
+        
+        <div class="address-row">
+    <label>都道府県・市区町村</label>
+    <div id="location_display" class="location-display">
+        <?php
+        // 現在選択されている都道府県と市区町村を表示
+        $location_terms = wp_get_object_terms($job_id, 'job_location', array('fields' => 'all'));
+        $selected_prefecture = '';
+        $selected_city = '';
+        
+        if (!empty($location_terms)) {
+            foreach ($location_terms as $term) {
+                $ancestors = get_ancestors($term->term_id, 'job_location', 'taxonomy');
+                if (count($ancestors) == 2) {
+                    // 親が2つ（祖父が地域、親が都道府県、自身は市区町村）
+                    $selected_city = $term->name;
+                    $prefecture_id = $ancestors[0]; // 親（都道府県）のID
+                    $prefecture_term = get_term($prefecture_id, 'job_location');
+                    if ($prefecture_term && !is_wp_error($prefecture_term)) {
+                        $selected_prefecture = $prefecture_term->name;
+                    }
+                    break;
+                } else if (count($ancestors) == 1 && empty($selected_prefecture)) {
+                    // 親が1つで都道府県の場合（市区町村が選択されていない場合）
+                    $selected_prefecture = $term->name;
+                }
+            }
+        }
+        
+        if (!empty($selected_prefecture) || !empty($selected_city)) {
+            echo $selected_prefecture . ' ' . $selected_city;
+        } else {
+            echo '<span class="location-empty">タクソノミーから選択されます</span>';
+        }
+        ?>
+    </div>
+    <p class="form-hint">※ 「勤務地域」セクションで選択した都道府県・市区町村が反映されます</p>
+</div>
+        
+        <div class="address-row">
+            <label for="facility_address_detail">町名番地・ビル名</label>
+            <input type="text" id="facility_address_detail" name="facility_address_detail" placeholder="○○町1-2-3 △△ビル5階" required>
+        </div>
+    </div>
+</div>
             
             <div class="form-row">
                 <label for="facility_map">GoogleMap <span class="required">*</span></label>
@@ -496,187 +544,270 @@ if (isset($_POST['post_job']) && isset($_POST['job_nonce']) &&
     <?php endif; ?>
 <!-- JavaScript -->
     <script>
-    jQuery(document).ready(function($) {
-        // メディアアップローダー（サムネイル用）
-        $('#upload_thumbnail').click(function(e) {
-            e.preventDefault();
-            
-            var custom_uploader = wp.media({
-                title: '求人サムネイル画像を選択',
-                button: {
-                    text: '画像を選択'
-                },
-                multiple: false
-            });
-            
-            custom_uploader.on('select', function() {
-                var attachment = custom_uploader.state().get('selection').first().toJSON();
-                $('.thumbnail-preview').html('<img src="' + attachment.url + '" alt="サムネイル画像">');
-                $('#thumbnail_id').val(attachment.id);
-                
-                // 削除ボタンを表示
-                if ($('#remove_thumbnail').length === 0) {
-                    $('.btn-media-upload').after('<button type="button" class="btn-media-remove" id="remove_thumbnail">画像を削除</button>');
-                }
-            });
-            
-            custom_uploader.open();
+   jQuery(document).ready(function($) {
+    // メディアアップローダー（サムネイル用）
+    $('#upload_thumbnail').click(function(e) {
+        e.preventDefault();
+        
+        var custom_uploader = wp.media({
+            title: '求人サムネイル画像を選択',
+            button: {
+                text: '画像を選択'
+            },
+            multiple: false
         });
         
-        // 画像削除ボタン（サムネイル用）
-        $(document).on('click', '#remove_thumbnail', function(e) {
-            e.preventDefault();
-            $('.thumbnail-preview').empty();
-            $('#thumbnail_id').val('');
-            $(this).remove();
-        });
-        
-        // 親タームチェックボックスの処理
-        $('.parent-checkbox').on('change', function() {
-            var termId = $(this).data('term-id');
-            var childContainer = $('#child-terms-' + termId);
+        custom_uploader.on('select', function() {
+            var attachment = custom_uploader.state().get('selection').first().toJSON();
+            $('.thumbnail-preview').html('<img src="' + attachment.url + '" alt="サムネイル画像">');
+            $('#thumbnail_id').val(attachment.id);
             
-            if ($(this).is(':checked')) {
-                // 親がチェックされたら子タームを読み込み
-                if (childContainer.is(':empty')) {
-                    $.ajax({
-                        url: ajaxurl,
-                        type: 'POST',
-                        data: {
-                            action: 'get_taxonomy_children',
-                            taxonomy: 'job_location',
-                            parent_id: termId
-                        },
-                        success: function(response) {
-                            if (response.success && response.data.length > 0) {
-                                var childTermsHtml = '';
-                                $.each(response.data, function(index, term) {
-                                    childTermsHtml += '<div class="child-term">';
-                                    childTermsHtml += '<label class="checkbox-label child-label">';
-                                    childTermsHtml += '<input type="checkbox" name="job_location[]" value="' + term.slug + '" class="child-checkbox" data-term-id="' + term.term_id + '">';
-                                    childTermsHtml += term.name;
-                                    childTermsHtml += '</label>';
-                                    childTermsHtml += '<div class="grandchild-terms" id="child-terms-' + term.term_id + '" style="display:none; margin-left: 20px;"></div>';
-                                    childTermsHtml += '</div>';
-                                });
-                                childContainer.html(childTermsHtml);
-                                
-                                // 子タームのチェックボックスにイベントハンドラを追加
-                                $('.child-checkbox').on('change', function() {
-                                    var childTermId = $(this).data('term-id');
-                                    var grandchildContainer = $('#child-terms-' + childTermId);
-                                    
-                                    if ($(this).is(':checked')) {
-                                        // 子がチェックされたら孫タームを読み込み
-                                        if (grandchildContainer.is(':empty')) {
-                                            $.ajax({
-                                                url: ajaxurl,
-                                                type: 'POST',
-                                                data: {
-                                                    action: 'get_taxonomy_children',
-                                                    taxonomy: 'job_location',
-                                                    parent_id: childTermId
-                                                },
-                                                success: function(response) {
-                                                    if (response.success && response.data.length > 0) {
-                                                        var grandchildTermsHtml = '';
-                                                        $.each(response.data, function(index, term) {
-                                                            grandchildTermsHtml += '<label class="checkbox-label grandchild-label">';
-                                                            grandchildTermsHtml += '<input type="checkbox" name="job_location[]" value="' + term.slug + '">';
-                                                            grandchildTermsHtml += term.name;
-                                                            grandchildTermsHtml += '</label>';
-                                                        });
-                                                        grandchildContainer.html(grandchildTermsHtml);
-                                                        grandchildContainer.show();
-                                                    }
-                                                }
-                                            });
-                                        } else {
-                                            grandchildContainer.show();
-                                        }
-                                    } else {
-                                        grandchildContainer.hide();
-                                        // 子のチェックが外れたら孫のチェックも外す
-                                        grandchildContainer.find('input[type="checkbox"]').prop('checked', false);
-                                    }
-                                });
-                            }
-                        }
-                    });
-                }
-                childContainer.show();
-            } else {
-                childContainer.hide();
-                // 親のチェックが外れたら子と孫のチェックも外す
-                childContainer.find('input[type="checkbox"]').prop('checked', false);
+            // 削除ボタンを表示
+            if ($('#remove_thumbnail').length === 0) {
+                $('.btn-media-upload').after('<button type="button" class="btn-media-remove" id="remove_thumbnail">画像を削除</button>');
             }
         });
         
-        // 仕事の一日の流れの項目を追加
-        $('#add-schedule-item').on('click', function() {
-            var newItem = $('.daily-schedule-item:first').clone();
-            newItem.find('input, textarea').val('');
-            newItem.find('.remove-schedule-item').show();
-            $('#daily-schedule-container').append(newItem);
-        });
-        
-        // 仕事の一日の流れの項目を削除
-        $(document).on('click', '.remove-schedule-item', function() {
-            $(this).closest('.daily-schedule-item').remove();
-        });
-        
-        // 職員の声の項目を追加
-        $('#add-voice-item').on('click', function() {
-            var newItem = $('.staff-voice-item:first').clone();
-            newItem.find('input, textarea').val('');
-            newItem.find('.voice-image-preview').empty();
-            newItem.find('.remove-voice-item').show();
-            $('#staff-voice-container').append(newItem);
-        });
-        
-        // 職員の声の項目を削除
-        $(document).on('click', '.remove-voice-item', function() {
-            $(this).closest('.staff-voice-item').remove();
-        });
-        
-        // 職員の声の画像アップローダー
-        $(document).on('click', '.upload-voice-image', function() {
-            var button = $(this);
-            var imageContainer = button.closest('.voice-image');
-            var previewContainer = imageContainer.find('.voice-image-preview');
-            var inputField = imageContainer.find('input[name^="staff_voice_image"]');
-            
-            var custom_uploader = wp.media({
-                title: '職員の声の画像を選択',
-                button: {
-                    text: '画像を選択'
-                },
-                multiple: false
-            });
-            
-            custom_uploader.on('select', function() {
-                var attachment = custom_uploader.state().get('selection').first().toJSON();
-                previewContainer.html('<img src="' + attachment.url + '" alt="スタッフ画像">');
-                inputField.val(attachment.id);
-                
-                // 削除ボタンを表示
-                imageContainer.find('.remove-voice-image').show();
-            });
-            
-            custom_uploader.open();
-        });
-        
-        // 職員の声の画像削除
-        $(document).on('click', '.remove-voice-image', function() {
-            var imageContainer = $(this).closest('.voice-image');
-            imageContainer.find('.voice-image-preview').empty();
-            imageContainer.find('input[name^="staff_voice_image"]').val('');
-            $(this).hide();
-        });
+        custom_uploader.open();
     });
+    
+    // 画像削除ボタン（サムネイル用）
+    $(document).on('click', '#remove_thumbnail', function(e) {
+        e.preventDefault();
+        $('.thumbnail-preview').empty();
+        $('#thumbnail_id').val('');
+        $(this).remove();
+    });
+    
+    // 親タームチェックボックスの処理
+    $('.parent-checkbox').on('change', function() {
+        var termId = $(this).data('term-id');
+        var childContainer = $('#child-terms-' + termId);
+        
+        if ($(this).is(':checked')) {
+            // 親がチェックされたら子タームを読み込み
+            if (childContainer.is(':empty')) {
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'get_taxonomy_children',
+                        taxonomy: 'job_location',
+                        parent_id: termId
+                    },
+                    success: function(response) {
+                        if (response.success && response.data.length > 0) {
+                            var childTermsHtml = '';
+                            $.each(response.data, function(index, term) {
+                                childTermsHtml += '<div class="child-term">';
+                                childTermsHtml += '<label class="checkbox-label child-label">';
+                                childTermsHtml += '<input type="checkbox" name="job_location[]" value="' + term.slug + '" class="child-checkbox" data-term-id="' + term.term_id + '">';
+                                childTermsHtml += term.name;
+                                childTermsHtml += '</label>';
+                                childTermsHtml += '<div class="grandchild-terms" id="child-terms-' + term.term_id + '" style="display:none; margin-left: 20px;"></div>';
+                                childTermsHtml += '</div>';
+                            });
+                            childContainer.html(childTermsHtml);
+                            
+                            // 子タームのチェックボックスにイベントハンドラを追加
+                            $('.child-checkbox').on('change', function() {
+                                var childTermId = $(this).data('term-id');
+                                var grandchildContainer = $('#child-terms-' + childTermId);
+                                
+                                if ($(this).is(':checked')) {
+                                    // 子がチェックされたら孫タームを読み込み
+                                    if (grandchildContainer.is(':empty')) {
+                                        $.ajax({
+                                            url: ajaxurl,
+                                            type: 'POST',
+                                            data: {
+                                                action: 'get_taxonomy_children',
+                                                taxonomy: 'job_location',
+                                                parent_id: childTermId
+                                            },
+                                            success: function(response) {
+                                                if (response.success && response.data.length > 0) {
+                                                    var grandchildTermsHtml = '';
+                                                    $.each(response.data, function(index, term) {
+                                                        grandchildTermsHtml += '<label class="checkbox-label grandchild-label">';
+                                                        grandchildTermsHtml += '<input type="checkbox" name="job_location[]" value="' + term.slug + '">';
+                                                        grandchildTermsHtml += term.name;
+                                                        grandchildTermsHtml += '</label>';
+                                                    });
+                                                    grandchildContainer.html(grandchildTermsHtml);
+                                                    grandchildContainer.show();
+                                                    
+                                                    // 孫タームにも変更イベントをバインド
+                                                    $('.grandchild-label input').on('change', function() {
+                                                        updateLocationDisplay();
+                                                    });
+                                                }
+                                            }
+                                        });
+                                    } else {
+                                        grandchildContainer.show();
+                                    }
+                                } else {
+                                    grandchildContainer.hide();
+                                    // 子のチェックが外れたら孫のチェックも外す
+                                    grandchildContainer.find('input[type="checkbox"]').prop('checked', false);
+                                    // 住所表示を更新
+                                    updateLocationDisplay();
+                                }
+                            });
+                            
+                            // 住所表示を更新
+                            updateLocationDisplay();
+                        }
+                    }
+                });
+            }
+            childContainer.show();
+        } else {
+            childContainer.hide();
+            // 親のチェックが外れたら子と孫のチェックも外す
+            childContainer.find('input[type="checkbox"]').prop('checked', false);
+            // 住所表示を更新
+            updateLocationDisplay();
+        }
+    });
+    
+    // 仕事の一日の流れの項目を追加
+    $('#add-schedule-item').on('click', function() {
+        var newItem = $('.daily-schedule-item:first').clone();
+        newItem.find('input, textarea').val('');
+        newItem.find('.remove-schedule-item').show();
+        $('#daily-schedule-container').append(newItem);
+    });
+    
+    // 仕事の一日の流れの項目を削除
+    $(document).on('click', '.remove-schedule-item', function() {
+        $(this).closest('.daily-schedule-item').remove();
+    });
+    
+    // 職員の声の項目を追加
+    $('#add-voice-item').on('click', function() {
+        var newItem = $('.staff-voice-item:first').clone();
+        newItem.find('input, textarea').val('');
+        newItem.find('.voice-image-preview').empty();
+        newItem.find('.remove-voice-item').show();
+        $('#staff-voice-container').append(newItem);
+    });
+    
+    // 職員の声の項目を削除
+    $(document).on('click', '.remove-voice-item', function() {
+        $(this).closest('.staff-voice-item').remove();
+    });
+    
+    // 職員の声の画像アップローダー
+    $(document).on('click', '.upload-voice-image', function() {
+        var button = $(this);
+        var imageContainer = button.closest('.voice-image');
+        var previewContainer = imageContainer.find('.voice-image-preview');
+        var inputField = imageContainer.find('input[name^="staff_voice_image"]');
+        
+        var custom_uploader = wp.media({
+            title: '職員の声の画像を選択',
+            button: {
+                text: '画像を選択'
+            },
+            multiple: false
+        });
+        
+        custom_uploader.on('select', function() {
+            var attachment = custom_uploader.state().get('selection').first().toJSON();
+            previewContainer.html('<img src="' + attachment.url + '" alt="スタッフ画像">');
+            inputField.val(attachment.id);
+            
+            // 削除ボタンを表示
+            imageContainer.find('.remove-voice-image').show();
+        });
+        
+        custom_uploader.open();
+    });
+    
+    // 職員の声の画像削除
+    $(document).on('click', '.remove-voice-image', function() {
+        var imageContainer = $(this).closest('.voice-image');
+        imageContainer.find('.voice-image-preview').empty();
+        imageContainer.find('input[name^="staff_voice_image"]').val('');
+        $(this).hide();
+    });
+    
+    // 勤務地域（都道府県・市区町村）の選択を住所表示に反映
+    function updateLocationDisplay() {
+        var prefecture = '';
+        var city = '';
+        
+        // まず孫ターム（市区町村）をチェック
+        var cityCheckbox = $('.grandchild-label input:checked');
+        if (cityCheckbox.length > 0) {
+            city = cityCheckbox.first().closest('label').text().trim();
+            
+            // 市区町村の親（都道府県）を取得
+            var childTerm = cityCheckbox.closest('.grandchild-terms').prev('.child-label');
+            if (childTerm.length > 0) {
+                prefecture = childTerm.text().trim();
+            }
+        } else {
+            // 市区町村が選択されていない場合は都道府県をチェック
+            var prefectureCheckbox = $('.child-checkbox:checked');
+            if (prefectureCheckbox.length > 0) {
+                prefecture = prefectureCheckbox.first().closest('label').text().trim();
+            }
+        }
+        
+        // 表示を更新
+        var displayText = prefecture + ' ' + city;
+        if (displayText.trim() === '') {
+            $('#location_display').html('<span class="location-empty">タクソノミーから選択されます</span>');
+        } else {
+            $('#location_display').text(displayText);
+        }
+    }
+    
+    // 地域選択時にイベントをバインド
+    $(document).on('change', '.parent-checkbox, .child-checkbox, .grandchild-label input', function() {
+        updateLocationDisplay();
+    });
+    
+    // ページ読み込み時に一度実行
+    setTimeout(updateLocationDisplay, 500); // ページ読み込み後に実行
+});
     </script>
     
     <style>
+/* 施設住所のスタイル */
+.address-container {
+    margin-bottom: 15px;
+}
+
+.address-row {
+    margin-bottom: 10px;
+}
+
+.address-row label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: normal;
+}
+
+#facility_zipcode {
+    width: 150px;
+}
+
+.location-display {
+    padding: 8px;
+    background-color: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    min-height: 20px;
+}
+
+.location-empty {
+    color: #999;
+    font-style: italic;
+}
     /* 求人投稿フォームのスタイル */
     .post-job-container {
         max-width: 1000px;
